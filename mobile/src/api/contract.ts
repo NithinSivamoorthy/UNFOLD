@@ -1,44 +1,69 @@
-/**
- * Mobile-side view of the generation API.
- *
- * SOURCE OF TRUTH: shared/contracts.ts (owned by the backend teammate). That file did not exist
- * yet when this was written, so these types mirror the agreed endpoints. When shared/contracts.ts
- * lands, re-export its types from here and delete the local definitions — screens only import
- * from this module, so nothing else changes.
- *
- *   POST /api/generations             multipart/form-data, field "image"  -> GenerationRecord
- *   GET  /api/generations/:id                                             -> GenerationRecord
- *   GET  /api/generations/:id/model                                       -> model/gltf-binary (GLB)
- */
-export type GenerationStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
+import type { GenerationStatus as BackendGenerationStatus } from '../../../shared/contracts';
 
+export type {
+  ApiError,
+  CreateGenerationResponse,
+  GenerationStatus,
+  GenerationStatusResponse,
+  HealthResponse,
+  GenerationRecord as BackendGenerationRecord,
+  TripoTaskResponse,
+} from '../../../shared/contracts';
+
+/** Status shape consumed by the mobile generation flow. */
+export type MobileGenerationStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
+
+/** Mobile adapter record; backend fields are normalized by parseGenerationRecord. */
 export interface GenerationRecord {
   id: string;
-  status: GenerationStatus;
-  /** 0..100 when the provider reports it */
+  status: MobileGenerationStatus;
+  /** 0..100 when the provider reports it. */
   progress?: number;
   error?: string;
   createdAt?: string;
 }
 
-const STATUSES: GenerationStatus[] = ['queued', 'processing', 'succeeded', 'failed'];
+const BACKEND_STATUSES: readonly BackendGenerationStatus[] = [
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'expired',
+];
 
-/** Defensive parse: never trust the network shape blindly. */
+/** Convert the backend response into the smaller status shape used in the app. */
 export function parseGenerationRecord(raw: unknown): GenerationRecord {
-  const o = (raw ?? {}) as Record<string, unknown>;
-  // Accept either a bare record or { generation: record }.
-  const r = (o.generation && typeof o.generation === 'object' ? o.generation : o) as Record<string, unknown>;
-  const id = r.id ?? r.generationId;
-  const status = r.status;
+  const object = (raw ?? {}) as Record<string, unknown>;
+  // Accept either a bare record or the legacy { generation: record } wrapper.
+  const record = (object.generation && typeof object.generation === 'object'
+    ? object.generation
+    : object) as Record<string, unknown>;
+  const id = record.id ?? record.generationId;
+  const status = record.status;
+
   if (typeof id !== 'string' || !id) throw new Error('Server response is missing a generation id');
-  if (typeof status !== 'string' || !STATUSES.includes(status as GenerationStatus)) {
+  if (typeof status !== 'string' || !BACKEND_STATUSES.includes(status as BackendGenerationStatus)) {
     throw new Error(`Server returned an unknown status: ${String(status)}`);
   }
+
+  const backendStatus = status as BackendGenerationStatus;
+  const mobileStatus: MobileGenerationStatus = backendStatus === 'running'
+    ? 'processing'
+    : backendStatus === 'expired'
+      ? 'failed'
+      : backendStatus;
+
   return {
     id,
-    status: status as GenerationStatus,
-    progress: typeof r.progress === 'number' ? r.progress : undefined,
-    error: typeof r.error === 'string' ? r.error : typeof r.message === 'string' ? (r.message as string) : undefined,
-    createdAt: typeof r.createdAt === 'string' ? r.createdAt : undefined,
+    status: mobileStatus,
+    progress: typeof record.progress === 'number' ? record.progress : undefined,
+    error: typeof record.errorMessage === 'string'
+      ? record.errorMessage
+      : typeof record.error === 'string'
+        ? record.error
+        : typeof record.message === 'string'
+          ? record.message
+          : undefined,
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
   };
 }
