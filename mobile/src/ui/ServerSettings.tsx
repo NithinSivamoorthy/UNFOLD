@@ -31,13 +31,13 @@ export function ServerSettings({ visible, onClose }: { visible: boolean; onClose
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
         <Text style={styles.title}>Generation server</Text>
         <Text style={styles.body}>
-          The address of the laptop running the UNFOLD server, reachable from this device on the same Wi-Fi
-          (e.g. http://192.168.1.20:8787) or an HTTPS tunnel URL.
+          The HTTPS address of the UNFOLD API server (for example a tunnel to the laptop running server/ on port 3000).
+          Campus Wi-Fi blocks direct laptop addresses, and the Expo app tunnel is not the API.
         </Text>
         <TextInput
           value={value}
           onChangeText={setValue}
-          placeholder="http://192.168.x.x:8787"
+          placeholder="https://your-api-tunnel.example.com"
           placeholderTextColor={C.textTertiary}
           autoCapitalize="none"
           autoCorrect={false}

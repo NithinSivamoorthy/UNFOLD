@@ -17,7 +17,14 @@ export function validateBaseUrl(url: string): string | null {
   }
   if (!/^https?:$/.test(u.protocol)) return 'Use an http:// or https:// address.';
   if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i.test(u.hostname)) {
-    return 'localhost points at this iPad, not your laptop. Use the laptop’s LAN IP (e.g. http://192.168.1.20:8787) or an HTTPS tunnel URL.';
+    return 'localhost points at this iPad, not your laptop. Use the API server’s HTTPS tunnel URL.';
+  }
+  // Expo's Metro tunnel serves the app bundle, not the UNFOLD API.
+  if (/(^|\.)(on\.expo\.app|exp\.direct|exp\.host)$/i.test(u.hostname)) {
+    return 'That is the Expo app (Metro) tunnel, not the UNFOLD API. Use the API server’s own HTTPS URL.';
+  }
+  if (['8081', '8082', '8083', '8084'].includes(u.port)) {
+    return `Port ${u.port} is an Expo dev server port. The UNFOLD API runs on its own port (3000 by default).`;
   }
   return null;
 }

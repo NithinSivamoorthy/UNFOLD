@@ -5,21 +5,26 @@ import { test } from 'node:test';
 const { parseGenerationRecord } = await import('../src/api/contract.ts');
 const { normalizeBaseUrl, validateBaseUrl, isGlbHeader } = await import('../src/api/url.ts');
 
-test('parses a bare generation record', () => {
-  assert.deepEqual(parseGenerationRecord({ id: 'g1', status: 'processing', progress: 40 }), {
-    id: 'g1', status: 'processing', progress: 40, error: undefined, createdAt: undefined,
+test('maps backend statuses and fields from shared/contracts', () => {
+  assert.deepEqual(parseGenerationRecord({ id: 'g1', status: 'running', progress: 40, createdAt: 't' }), {
+    id: 'g1', status: 'processing', progress: 40, error: undefined, createdAt: 't',
   });
+  assert.equal(parseGenerationRecord({ id: 'g0', status: 'queued', progress: 0 }).status, 'queued');
+  const done = parseGenerationRecord({ id: 'g2', status: 'succeeded', progress: 100, modelUrl: '/api/generations/g2/model' });
+  assert.equal(done.status, 'succeeded');
+  assert.equal(done.progress, 100);
 });
 
-test('parses a wrapped record and server error message', () => {
-  const r = parseGenerationRecord({ generation: { id: 'g2', status: 'failed', message: 'bad image' } });
-  assert.equal(r.status, 'failed');
-  assert.equal(r.error, 'bad image');
+test('failed and expired generations surface the server errorMessage', () => {
+  const failed = parseGenerationRecord({ id: 'g3', status: 'failed', progress: 10, errorMessage: 'Tripo task banned.' });
+  assert.deepEqual([failed.status, failed.error], ['failed', 'Tripo task banned.']);
+  const expired = parseGenerationRecord({ id: 'g4', status: 'expired', progress: 0, errorMessage: 'Generation record expired after 24 hours.' });
+  assert.deepEqual([expired.status, expired.error], ['failed', 'Generation record expired after 24 hours.']);
 });
 
-test('rejects missing id and unknown status', () => {
+test('rejects missing id and statuses outside the contract', () => {
   assert.throws(() => parseGenerationRecord({ status: 'queued' }), /missing a generation id/);
-  assert.throws(() => parseGenerationRecord({ id: 'x', status: 'done' }), /unknown status/);
+  assert.throws(() => parseGenerationRecord({ id: 'x', status: 'processing' }), /unknown status/);
   assert.throws(() => parseGenerationRecord(null), /missing a generation id/);
 });
 
@@ -35,6 +40,13 @@ test('rejects localhost and empty URLs, accepts LAN/HTTPS', () => {
   }
   assert.equal(validateBaseUrl('http://192.168.1.20:8787'), null);
   assert.equal(validateBaseUrl('https://unfold.trycloudflare.com'), null);
+  assert.equal(validateBaseUrl('http://10.0.0.5:3000'), null);
+});
+
+test('rejects the Expo Metro tunnel and dev-server ports as the API address', () => {
+  assert.match(validateBaseUrl('https://c-abc-1jerm6-mwqt1lh7q9oupqrm.on.expo.app'), /Metro/);
+  assert.match(validateBaseUrl('https://abc.exp.direct'), /Metro/);
+  assert.match(validateBaseUrl('http://10.245.176.18:8082'), /Expo dev server port/);
 });
 
 test('detects GLB magic bytes', () => {

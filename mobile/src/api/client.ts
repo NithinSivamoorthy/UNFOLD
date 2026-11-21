@@ -65,14 +65,18 @@ async function readJson(res: Response): Promise<GenerationRecord> {
   }
 }
 
-/** Reachability probe for Settings. Any HTTP response (even 404) proves the host is reachable. */
+/** Health probe: only a real UNFOLD API ({ status: 'ok' } from /api/health) counts as connected. */
 export async function pingServer(): Promise<{ ok: boolean; message: string }> {
   try {
-    await request('/api/health', { timeoutMs: 5000 });
-    return { ok: true, message: 'Connected to the UNFOLD server.' };
+    const res = await request('/api/health', { timeoutMs: 8000 });
+    const body = await res.json().catch(() => null);
+    if (body && body.status === 'ok') return { ok: true, message: 'Connected to the UNFOLD API.' };
+    return { ok: false, message: 'Something answered at this address, but it isn’t the UNFOLD API.' };
   } catch (e) {
     const err = e as ApiError;
-    if (err.kind === 'http') return { ok: true, message: `Server reachable (health check returned ${err.status}).` };
+    if (err.kind === 'http') {
+      return { ok: false, message: `Reached the address, but /api/health returned ${err.status}. Is this the UNFOLD API?` };
+    }
     return { ok: false, message: err.message };
   }
 }
@@ -156,8 +160,14 @@ export async function downloadGenerationModel(
     handle.close();
   }
   if (!isGlbHeader(header)) {
+    // Non-2xx responses land here too: surface the server's { error: { message } } when present.
+    let detail = '';
+    try {
+      const body = JSON.parse(await file.text());
+      detail = body?.error?.message ?? '';
+    } catch {}
     file.delete();
-    throw new ApiError('The server’s model endpoint did not return a GLB file.', 'parse');
+    throw new ApiError(detail || 'The server’s model endpoint did not return a GLB file.', 'parse');
   }
   return file.uri;
 }
