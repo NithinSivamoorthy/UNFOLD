@@ -4,9 +4,9 @@ import path from 'node:path';
 import type { GenerationRecord, GenerationStatus } from '../../../shared/contracts';
 
 const GENERATION_TTL_MS = 24 * 60 * 60 * 1000;
-const serverRoot = path.basename(path.resolve(__dirname, '../../..')) === 'dist'
-  ? path.resolve(__dirname, '../../../../')
-  : path.resolve(__dirname, '../..');
+// The server is launched with its working directory set to server/ in both
+// source and compiled modes; keep persistent records outside dist/.
+const serverRoot = process.cwd();
 const DEFAULT_STORE_FILE = path.resolve(serverRoot, 'data', 'generations.json');
 const records = new Map<string, GenerationRecord>();
 

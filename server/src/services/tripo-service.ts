@@ -128,7 +128,13 @@ export async function createImageToModelTask(fileToken: string): Promise<string>
   const data = await requestJson<{ task_id: string }>(`${TRIPO_BASE_URL}/generation/image-to-model`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input: fileToken, model: process.env.TRIPO_MODEL || 'v3.1-20260211' }),
+    body: JSON.stringify({
+      input: fileToken,
+      model: 'v3.1-20260211',
+      texture: true,
+      pbr: true,
+      texture_quality: 'standard',
+    }),
   }, 'task_creation');
   if (typeof data.task_id !== 'string' || data.task_id.length === 0) {
     throw malformedResponse('task_creation', 'Tripo task response did not include a task ID.');
