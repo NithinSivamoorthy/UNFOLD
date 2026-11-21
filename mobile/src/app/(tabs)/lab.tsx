@@ -1,7 +1,7 @@
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useLayout } from '@/ui/layout';
 import { C, R } from '@/ui/theme';
 
 /**
@@ -28,12 +28,11 @@ const MODULES: { icon: SymbolViewProps['name']; title: string; body: string }[] 
 ];
 
 export default function LabScreen() {
-  const L = useLayout();
-  const cols = L.width >= 900 ? 3 : 1;
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const cols = width >= 900 ? 3 : 1;
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={{ paddingTop: L.insets.top + 24, paddingBottom: L.insets.bottom + 24, paddingLeft: L.padLeft, paddingRight: L.padRight }}>
+    <ScrollView style={styles.root} contentContainerStyle={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 100, paddingHorizontal: 32 }}>
       <Text style={styles.eyebrow}>LAB</Text>
       <Text style={styles.title}>Experiment with your models</Text>
       <View style={[styles.grid, { flexDirection: cols > 1 ? 'row' : 'column' }]}>
