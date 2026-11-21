@@ -10,8 +10,10 @@ import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isBusy, type PickedImage, useGeneration } from '@/lib/useGeneration';
+import { useServerStatus } from '@/lib/useServerStatus';
 import { Button } from '@/ui/Button';
 import { GenerationStatus } from '@/ui/GenerationStatus';
+import { ServerPill } from '@/ui/ServerPill';
 import { ServerSettings } from '@/ui/ServerSettings';
 import { C, R } from '@/ui/theme';
 
@@ -23,6 +25,7 @@ export default function CaptureScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { phase, start, cancel, reset } = useGeneration();
   const busy = isBusy(phase);
+  const { status: server, refresh: refreshServer } = useServerStatus();
 
   // The moment a real model exists on device, unfold into the 3D explorer.
   useEffect(() => {
@@ -154,9 +157,12 @@ export default function CaptureScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
         <Text style={styles.wordmark}>UNFOLD</Text>
-        <Pressable onPress={() => setSettingsOpen(true)} hitSlop={12} accessibilityLabel="Server settings" style={styles.iconBtn}>
-          <SymbolView name="gearshape" size={20} tintColor={C.textSecondary} />
-        </Pressable>
+        <View style={styles.topRight}>
+          <ServerPill status={server} onPress={() => setSettingsOpen(true)} />
+          <Pressable onPress={() => setSettingsOpen(true)} hitSlop={12} accessibilityLabel="Server settings" style={styles.iconBtn}>
+            <SymbolView name="gearshape" size={20} tintColor={C.textSecondary} />
+          </Pressable>
+        </View>
       </View>
       <ScrollView
         contentContainerStyle={[styles.scroll, wide && styles.scrollWide, { paddingBottom: insets.bottom + 100 }]}
@@ -173,7 +179,13 @@ export default function CaptureScreen() {
           </View>
         )}
       </ScrollView>
-      <ServerSettings visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ServerSettings
+        visible={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false);
+          refreshServer();
+        }}
+      />
     </View>
   );
 }
@@ -194,6 +206,7 @@ function ScanFrame() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 28, height: 56 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
   wordmark: { color: C.text, fontSize: 15, fontWeight: '800', letterSpacing: 6 },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
   scroll: { paddingHorizontal: 20, paddingTop: 12 },

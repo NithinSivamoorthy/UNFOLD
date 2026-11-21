@@ -10,6 +10,9 @@
  *   GET  /api/generations/:id                                             -> GenerationRecord
  *   GET  /api/generations/:id/model                                       -> model/gltf-binary (GLB)
  */
+/** Multipart field name for the uploaded image. Confirm against shared/contracts.ts. */
+export const IMAGE_FIELD = 'image';
+
 export type GenerationStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
 
 export interface GenerationRecord {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, createGeneration, downloadGenerationModel, waitForGeneration } from '@/api/client';
+import { prepareImageForUpload } from './prepareImage';
 
 export type PickedImage = { uri: string; width: number; height: number; mimeType?: string | null; fileName?: string | null };
 
@@ -10,7 +11,7 @@ export type GenPhase =
   | { kind: 'uploading' }
   | { kind: 'queued'; id: string }
   | { kind: 'processing'; id: string; progress?: number }
-  | { kind: 'downloading'; id: string }
+  | { kind: 'downloading'; id: string; progress?: number }
   | { kind: 'succeeded'; id: string; modelUri: string }
   | { kind: 'failed'; message: string; id?: string; retryable: boolean };
 
@@ -27,7 +28,14 @@ export function useGeneration() {
     let id: string | undefined;
     try {
       setPhase({ kind: 'uploading' });
-      const created = await createGeneration(image, ctrl.signal);
+      let upload = image;
+      try {
+        upload = await prepareImageForUpload(image);
+      } catch {
+        // Fall back to the original file if re-encoding fails; the server can still accept it.
+      }
+      if (ctrl.signal.aborted) return;
+      const created = await createGeneration(upload, ctrl.signal);
       id = created.id;
       setPhase(created.status === 'processing' ? { kind: 'processing', id, progress: created.progress } : { kind: 'queued', id });
 
@@ -49,7 +57,14 @@ export function useGeneration() {
         return;
       }
       setPhase({ kind: 'downloading', id });
-      const modelUri = await downloadGenerationModel(id);
+      const doneId = id;
+      const modelUri = await downloadGenerationModel(
+        doneId,
+        (f) => {
+          if (!ctrl.signal.aborted && f != null) setPhase({ kind: 'downloading', id: doneId, progress: f * 100 });
+        },
+        ctrl.signal
+      );
       if (!ctrl.signal.aborted) setPhase({ kind: 'succeeded', id, modelUri });
     } catch (e) {
       const err = e as ApiError;

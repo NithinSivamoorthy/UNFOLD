@@ -1,7 +1,8 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { getApiBaseUrl, validateBaseUrl } from './config';
-import { type GenerationRecord, parseGenerationRecord } from './contract';
+import { type GenerationRecord, IMAGE_FIELD, parseGenerationRecord } from './contract';
+import { isGlbHeader } from './url';
 
 export class ApiError extends Error {
   constructor(
@@ -51,6 +52,19 @@ async function request(path: string, init: RequestInit & { timeoutMs?: number; s
   }
 }
 
+async function readJson(res: Response): Promise<GenerationRecord> {
+  const type = res.headers.get('content-type') ?? '';
+  if (!type.includes('json')) {
+    // Typical when the URL points at a captive portal, a tunnel splash page, or the Expo dev server.
+    throw new ApiError(`Expected JSON from the UNFOLD server but got "${type || 'unknown'}". Is the server address correct?`, 'parse');
+  }
+  try {
+    return parseGenerationRecord(await res.json());
+  } catch (e) {
+    throw new ApiError((e as Error).message, 'parse');
+  }
+}
+
 /** Reachability probe for Settings. Any HTTP response (even 404) proves the host is reachable. */
 export async function pingServer(): Promise<{ ok: boolean; message: string }> {
   try {
@@ -71,22 +85,14 @@ export async function createGeneration(
   const type = image.mimeType || 'image/jpeg';
   const name = image.fileName || `capture.${type.split('/')[1] ?? 'jpg'}`;
   // React Native's FormData accepts a { uri, name, type } file descriptor.
-  form.append('image', { uri: image.uri, name, type } as unknown as Blob);
-  const res = await request('/api/generations', { method: 'POST', body: form, timeoutMs: 60000, signal });
-  try {
-    return parseGenerationRecord(await res.json());
-  } catch (e) {
-    throw new ApiError((e as Error).message, 'parse');
-  }
+  form.append(IMAGE_FIELD, { uri: image.uri, name, type } as unknown as Blob);
+  const res = await request('/api/generations', { method: 'POST', body: form, timeoutMs: 90000, signal });
+  return readJson(res);
 }
 
 export async function getGeneration(id: string, signal?: AbortSignal): Promise<GenerationRecord> {
   const res = await request(`/api/generations/${encodeURIComponent(id)}`, { signal });
-  try {
-    return parseGenerationRecord(await res.json());
-  } catch (e) {
-    throw new ApiError((e as Error).message, 'parse');
-  }
+  return readJson(res);
 }
 
 /** Poll until succeeded/failed. Transient network errors are retried a few times. */
@@ -117,17 +123,41 @@ export async function waitForGeneration(
 
 const generationsDir = () => new Directory(Paths.cache, 'generations');
 
-/** Downloads the real generated GLB to the cache. Returns the local file URI. */
-export async function downloadGenerationModel(id: string): Promise<string> {
+/**
+ * Downloads the real generated GLB to the cache and verifies it really is a GLB (magic bytes),
+ * so an HTML error page can never reach the viewer. Returns the local file URI.
+ */
+export async function downloadGenerationModel(
+  id: string,
+  onProgress?: (fraction: number | null) => void,
+  signal?: AbortSignal
+): Promise<string> {
   const dir = generationsDir();
   dir.create({ intermediates: true, idempotent: true });
   const dest = new File(dir, `${id}.glb`);
   const url = `${await baseUrl()}/api/generations/${encodeURIComponent(id)}/model`;
+  let file: File;
   try {
-    const file = await File.downloadFileAsync(url, dest, { idempotent: true });
-    if (!file.exists || !file.size) throw new Error('Downloaded model is empty');
-    return file.uri;
+    file = await File.downloadFileAsync(url, dest, {
+      idempotent: true,
+      signal,
+      onProgress: ({ bytesWritten, totalBytes }) => onProgress?.(totalBytes > 0 ? bytesWritten / totalBytes : null),
+    });
   } catch (e) {
+    if (signal?.aborted) throw new ApiError('Cancelled', 'cancelled');
     throw new ApiError(`Couldn’t download the 3D model: ${(e as Error).message}`, 'network');
   }
+  if (!file.exists || !file.size) throw new ApiError('The server sent an empty model file.', 'parse');
+  const handle = file.open();
+  let header: Uint8Array;
+  try {
+    header = await handle.readBytes(4);
+  } finally {
+    handle.close();
+  }
+  if (!isGlbHeader(header)) {
+    file.delete();
+    throw new ApiError('The server’s model endpoint did not return a GLB file.', 'parse');
+  }
+  return file.uri;
 }

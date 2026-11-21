@@ -32,9 +32,9 @@ function stepIndex(p: GenPhase): number {
 }
 
 const COPY: Partial<Record<GenPhase['kind'], string>> = {
-  uploading: 'Sending your image to the UNFOLD server…',
-  queued: 'Queued with the 3D generation engine…',
-  processing: 'Building geometry and textures from your image…',
+  uploading: 'Optimizing and sending your image to the UNFOLD server…',
+  queued: 'Waiting for the 3D generation engine to pick up your image…',
+  processing: 'The AI is building geometry and textures. This usually takes 1–3 minutes.',
   downloading: 'Downloading your 3D model…',
   succeeded: 'Your model is ready.',
 };
@@ -48,7 +48,7 @@ export function GenerationStatus({ phase }: { phase: GenPhase }) {
   const sweepStyle = useAnimatedStyle(() => ({ transform: [{ translateX: `${-100 + sweep.get() * 200}%` }] }));
 
   if (idx < 0) return null;
-  const progress = phase.kind === 'processing' ? phase.progress : undefined;
+  const progress = phase.kind === 'processing' || phase.kind === 'downloading' ? phase.progress : undefined;
 
   return (
     <View style={styles.wrap} accessibilityLiveRegion="polite">
