@@ -6,7 +6,15 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
  * Each camera photo is immediately downscaled (long side ≤ 1280 px) and the full-resolution original
  * deleted, so a 30-frame scan stays at a few MB instead of hundreds.
  */
-export type Frame = { uri: string; width: number; height: number; capturedAt: number };
+export type Frame = {
+  uri: string;
+  width: number;
+  height: number;
+  capturedAt: number;
+  sizeBytes: number;
+  /** device turn since Start Scan (gyro), degrees — approximate, see coverage.ts */
+  headingDeg: number;
+};
 
 const MAX_SIDE = 1280;
 
@@ -19,7 +27,8 @@ export function newSession(): Directory {
 export async function storeFrame(
   session: Directory,
   index: number,
-  photo: { uri: string; width: number; height: number }
+  photo: { uri: string; width: number; height: number },
+  headingDeg: number
 ): Promise<Frame> {
   const ctx = ImageManipulator.manipulate(photo.uri);
   if (Math.max(photo.width, photo.height) > MAX_SIDE) {
@@ -30,7 +39,14 @@ export async function storeFrame(
   const tmp = new File(img.uri);
   await tmp.move(dest);
   deleteQuietly(photo.uri);
-  return { uri: dest.uri, width: img.width, height: img.height, capturedAt: Date.now() };
+  return {
+    uri: dest.uri,
+    width: img.width,
+    height: img.height,
+    capturedAt: Date.now(),
+    sizeBytes: new File(dest.uri).size ?? 0,
+    headingDeg,
+  };
 }
 
 /** Copies a frame out of the session so it survives session cleanup (e.g. as a generation source). */

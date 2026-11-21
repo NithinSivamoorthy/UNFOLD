@@ -32,3 +32,32 @@ export function reindexAfterRemoval(sel: ViewSelection, removed: number): ViewSe
 }
 
 export const isComplete = (sel: ViewSelection) => VIEW_SLOTS.every((k) => sel[k] != null);
+
+/** Angular distance between two headings in degrees (0..180). */
+const angDist = (a: number, b: number) => {
+  const d = Math.abs((((a - b) % 360) + 360) % 360);
+  return d > 180 ? 360 - d : d;
+};
+
+/**
+ * Picks four distinct frames whose measured device headings are closest to 0/90/180/270° from the
+ * start. Headings come from the gyro (device turn), so the result is still approximate. Which side is
+ * "left" depends on the walking direction, hence Swap L/R in the UI.
+ */
+export function pickByHeading(headings: number[]): ViewSelection {
+  const targets: Record<ViewSlot, number> = { front: 0, left: 90, back: 180, right: 270 };
+  const used = new Set<number>();
+  const sel: ViewSelection = { front: null, left: null, back: null, right: null };
+  for (const slot of VIEW_SLOTS) {
+    let best: number | null = null;
+    headings.forEach((h, i) => {
+      if (used.has(i)) return;
+      if (best == null || angDist(h, targets[slot]) < angDist(headings[best], targets[slot])) best = i;
+    });
+    if (best != null) {
+      sel[slot] = best;
+      used.add(best);
+    }
+  }
+  return sel;
+}
