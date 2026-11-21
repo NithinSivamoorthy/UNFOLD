@@ -1,10 +1,12 @@
 import { BlurView } from 'expo-blur';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
+import { MeasurementPanel } from '@/features/measure';
+import type { Calibration, ModelRef } from '@/integrations/types';
 import { deleteModel, getModel, type ModelOrigin, saveModel, type SavedModel, shareModel } from '@/library/store';
 import { Button } from '@/ui/Button';
 import { useLayout } from '@/ui/layout';
@@ -34,6 +36,9 @@ export default function ExploreScreen() {
   const [attempt, setAttempt] = useState(0);
   const [saved, setSaved] = useState<SavedModel | null>(null);
   const [saving, setSaving] = useState(false);
+  // Measurements (teammate-owned MeasurementPanel). Calibration lives only while this screen is open.
+  const [measurementsOpen, setMeasurementsOpen] = useState(false);
+  const [calibration, setCalibration] = useState<Calibration>();
   const [lookup, setLookup] = useState<'none' | 'pending' | 'missing'>(p.modelId ? 'pending' : 'none');
 
   // Reopen from the on-device library: no network, no regeneration.
@@ -64,6 +69,14 @@ export default function ExploreScreen() {
   const modelUri = saved?.available ? saved.glbUri : p.uri;
   const title = saved?.name ?? p.title ?? 'Model';
   const compact = L.width < 560;
+  const model = useMemo<ModelRef | null>(
+    () =>
+      modelUri
+        ? { id: saved?.id ?? modelUri, name: title, glbUri: modelUri, modelExtents: dims ?? undefined }
+        : null,
+    [modelUri, saved?.id, title, dims]
+  );
+  const sidePanel = L.twoColumn; // landscape / wide: panel beside the model; otherwise full overlay
   const short = L.height < 520;
 
   const save = () => {
@@ -231,6 +244,8 @@ export default function ExploreScreen() {
                 setSpin(!spin);
               }}
             />
+            <View style={styles.sep} />
+            <ToolButton icon="ruler" label="Measure" compact={compact} active={measurementsOpen} onPress={() => setMeasurementsOpen(true)} />
             {p.uri || saved ? <View style={styles.sep} /> : null}
             {saved ? (
               <ToolButton icon="checkmark.circle.fill" label="Saved" compact={compact} active onPress={() => router.navigate('/library')} />
@@ -239,6 +254,43 @@ export default function ExploreScreen() {
             ) : null}
           </Glass>
           {!short ? <Text style={styles.hint}>Drag to rotate · pinch to zoom · two fingers to pan</Text> : null}
+        </Animated.View>
+      ) : null}
+
+      {measurementsOpen && model ? (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          style={[
+            styles.measurementsOverlay,
+            sidePanel
+              ? { top: 0, bottom: 0, right: 0, width: Math.min(480, L.width * 0.45), paddingRight: 18 + L.insets.right }
+              : { top: 0, bottom: 0, left: 0, right: 0, paddingLeft: 18 + L.insets.left, paddingRight: 18 + L.insets.right },
+            { paddingTop: L.insets.top + 12, paddingBottom: L.insets.bottom + 12 },
+          ]}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={styles.measurementsHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.measurementsEyebrow}>MODEL SIZE · ESTIMATES</Text>
+                <Text style={styles.measurementsTitle} numberOfLines={1}>
+                  {model.name}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setMeasurementsOpen(false)}
+                style={styles.measurementsClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close measurements">
+                <SymbolView name="xmark" size={15} tintColor={C.text} weight="semibold" />
+              </Pressable>
+            </View>
+            <View style={styles.measurementsBody}>
+              <MeasurementPanel model={model} calibration={calibration} onCalibrated={setCalibration} />
+            </View>
+            <Text style={styles.measurementsNote}>
+              Estimates scale the model uniformly from one known length; they are not verified measurements. Calibration is not
+              saved yet and resets when you close this model.
+            </Text>
+          </KeyboardAvoidingView>
         </Animated.View>
       ) : null}
     </View>
@@ -300,4 +352,27 @@ const styles = StyleSheet.create({
   dimsValue: { color: C.text, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], marginTop: 2 },
   dimsNote: { color: C.textTertiary, fontSize: 11, marginTop: 2 },
   hint: { color: C.textTertiary, fontSize: 12 },
+  measurementsOverlay: {
+    position: 'absolute',
+    zIndex: 10,
+    backgroundColor: C.bg,
+    paddingLeft: 18,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: C.hairlineStrong,
+  },
+  measurementsHeader: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 },
+  measurementsEyebrow: { color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 2 },
+  measurementsTitle: { color: C.text, fontSize: 17, fontWeight: '600', marginTop: 2 },
+  measurementsClose: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.elevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.hairlineStrong,
+  },
+  measurementsBody: { flex: 1, overflow: 'hidden', borderRadius: R.lg },
+  measurementsNote: { color: C.textTertiary, fontSize: 11, lineHeight: 15, marginTop: 8 },
 });
