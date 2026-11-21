@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/ui/Button';
 import { C, R } from '@/ui/theme';
 import { type ModelDimensions, ModelViewer, type ModelViewerHandle } from '@/viewer/ModelViewer';
+import { MeasurementPanel } from '@/features/measure';
+import type { Calibration, ModelRef } from '@/integrations/types';
 
 export default function ExploreScreen() {
   const { uri, title } = useLocalSearchParams<{ uri: string; title?: string; generationId?: string; sourceImage?: string }>();
@@ -20,6 +22,14 @@ export default function ExploreScreen() {
   const [dims, setDims] = useState<ModelDimensions | null>(null);
   const [spin, setSpin] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [measurementsOpen, setMeasurementsOpen] = useState(false);
+  const [calibration, setCalibration] = useState<Calibration>();
+  const model = useMemo<ModelRef | null>(() => uri ? {
+    id: uri,
+    name: title || 'Model',
+    glbUri: uri,
+    modelExtents: dims ?? undefined,
+  } : null, [uri, title, dims]);
 
   if (!uri) {
     return (
@@ -112,9 +122,28 @@ export default function ExploreScreen() {
                 setSpin(!spin);
               }}
             />
+            <View style={styles.sep} />
+            <ToolButton icon="ruler" label="Measure" onPress={() => setMeasurementsOpen(true)} />
           </Glass>
           <Text style={styles.hint}>Drag to rotate · pinch to zoom · two fingers to pan</Text>
         </Animated.View>
+      ) : null}
+
+      {measurementsOpen && model ? (
+        <View style={[StyleSheet.absoluteFill, styles.measurementsOverlay, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+          <View style={styles.measurementsHeader}>
+            <View>
+              <Text style={styles.measurementsEyebrow}>MODEL SIZE</Text>
+              <Text style={styles.measurementsTitle} numberOfLines={1}>{model.name}</Text>
+            </View>
+            <Pressable onPress={() => setMeasurementsOpen(false)} style={styles.measurementsClose} accessibilityRole="button" accessibilityLabel="Close measurements">
+              <SymbolView name="xmark" size={15} tintColor={C.text} weight="semibold" />
+            </Pressable>
+          </View>
+          <View style={styles.measurementsBody}>
+            <MeasurementPanel model={model} calibration={calibration} onCalibrated={setCalibration} />
+          </View>
+        </View>
       ) : null}
     </View>
   );
@@ -162,4 +191,10 @@ const styles = StyleSheet.create({
   dimsValue: { color: C.text, fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], marginTop: 2 },
   dimsNote: { color: C.textTertiary, fontSize: 11, marginTop: 2 },
   hint: { color: C.textTertiary, fontSize: 12 },
+  measurementsOverlay: { zIndex: 10, backgroundColor: C.bg, paddingHorizontal: 18 },
+  measurementsHeader: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 },
+  measurementsEyebrow: { color: C.accent, fontSize: 10, fontWeight: '700', letterSpacing: 2 },
+  measurementsTitle: { color: C.text, fontSize: 17, fontWeight: '600', marginTop: 2, maxWidth: 300 },
+  measurementsClose: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: C.elevated, borderWidth: StyleSheet.hairlineWidth, borderColor: C.hairlineStrong },
+  measurementsBody: { flex: 1, overflow: 'hidden', borderRadius: R.lg },
 });
