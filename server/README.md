@@ -11,7 +11,7 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Set `TRIPO_API_KEY` in `.env`. Optional settings are `PORT` (default `3000`), `FRONTEND_ORIGIN` (default `http://localhost:5173`), and `TRIPO_MODEL` (default `v3.1-20260211`). Keep `.env` private; it is ignored by Git.
+Set `TRIPO_API_KEY` in `.env`. Optional settings are `PORT` (default `3000`), `FRONTEND_ORIGIN` (a comma-separated list; defaults to `http://localhost:5173,http://localhost:8081` for local frontend development), and `TRIPO_MODEL` (default `v3.1-20260211`). Keep `.env` private; it is ignored by Git. For an Expo web frontend opened from a LAN address, add that exact frontend origin to `FRONTEND_ORIGIN`.
 
 ## Run and build
 
@@ -42,6 +42,6 @@ Invoke-RestMethod "http://localhost:3000/api/generations/$($created.id)"
 Invoke-WebRequest "http://localhost:3000/api/generations/$($created.id)/model" -OutFile .\generated.glb
 ```
 
-Generation records are kept in memory and expire locally after 24 hours; restarting the server clears active records. Downloaded GLB files remain in `server/models/`. API requests have timeouts and rate limits; generation creation is limited to 10 requests per IP per hour, and API traffic to 120 requests per IP per minute.
+Generation records are persisted in `server/data/generations.json` and expire after 24 hours. Restarting the server loads unexpired records so status polling can resume. Downloaded GLB files are stored in `server/models/`. API requests have timeouts and rate limits; generation creation is limited to 10 requests per IP per hour, and API traffic to 120 requests per IP per minute.
 
 The Tripo v3 workflow uses `POST /v3/files` with multipart field `file`, `POST /v3/generation/image-to-model` with `input` set to the returned `file_token`, and `GET /v3/tasks/{task_id}` for status and output.

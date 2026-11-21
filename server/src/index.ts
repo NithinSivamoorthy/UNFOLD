@@ -11,10 +11,16 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
-const allowedOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+// Expo's web dev server commonly uses 8081; 5173 remains supported for the
+// project's earlier Vite-style local frontend setup. Set FRONTEND_ORIGIN to a
+// comma-separated list to allow a LAN-hosted frontend during development.
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173,http://localhost:8081')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.disable('x-powered-by');
-app.use(cors({ origin: allowedOrigin, methods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }));
+app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (_request, response) => {
