@@ -107,7 +107,7 @@ export default function CaptureScreen() {
         <Button label="Choose from Photos" icon="photo.on.rectangle" size="lg" onPress={() => pick('library')} disabled={busy} style={styles.flexBtn} />
       </View>
       <View style={styles.secondaryRow}>
-        <Button label="Guided 3D Scan" icon="viewfinder" onPress={() => router.push('/scan')} disabled={busy} />
+        <Button label="3D Scan" icon="viewfinder" onPress={() => router.push('/scan')} disabled={busy} />
         <Button label="Open a .glb file" icon="doc.badge.plus" variant="ghost" onPress={openGlb} disabled={busy} />
       </View>
     </Animated.View>
