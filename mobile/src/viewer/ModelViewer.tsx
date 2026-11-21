@@ -1,6 +1,6 @@
 import { File } from 'expo-file-system';
 import { type ComponentType, forwardRef, type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { WebView as RNWebView, type WebViewMessageEvent, type WebViewProps } from 'react-native-webview';
 
 import { MODEL_VIEWER_LIB } from './model-viewer-lib.generated';
@@ -11,6 +11,8 @@ export type ModelDimensions = { x: number; y: number; z: number };
 export type ModelViewerHandle = {
   resetView(): void;
   setAutoRotate(on: boolean): void;
+  /** JPEG render of the current view, base64 without the data: prefix. */
+  snapshot(): Promise<string>;
 };
 
 type Props = {
@@ -43,11 +45,30 @@ export const ModelViewer = forwardRef<ModelViewerHandle, Props>(function ModelVi
   const html = useMemo(() => buildViewerHtml(MODEL_VIEWER_LIB), []);
   const cbs = useRef({ onLoaded, onProgress, onError });
   cbs.current = { onLoaded, onProgress, onError };
+  const pendingSnaps = useRef(new Map<string, { resolve: (b64: string) => void; reject: (e: Error) => void }>());
+  const { width, height } = useWindowDimensions();
 
   useImperativeHandle(ref, () => ({
     resetView: () => web.current?.injectJavaScript('window.unfold && unfold.reset(); true;'),
     setAutoRotate: (on) => web.current?.injectJavaScript(`window.unfold && unfold.setAutoRotate(${on}); true;`),
+    snapshot: () =>
+      new Promise<string>((resolve, reject) => {
+        const id = Math.random().toString(36).slice(2);
+        pendingSnaps.current.set(id, { resolve, reject });
+        web.current?.injectJavaScript(`window.unfold && unfold.snapshot('${id}'); true;`);
+        setTimeout(() => {
+          if (pendingSnaps.current.delete(id)) reject(new Error('Snapshot timed out'));
+        }, 5000);
+      }),
   }));
+
+  // Belt and braces for rotation: WKWebView normally fires `resize` itself, but nudge the page after
+  // RN reports new window dimensions so the renderer and framing always match the new aspect ratio.
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => web.current?.injectJavaScript('window.unfold && unfold.relayout(); true;'), 350);
+    return () => clearTimeout(t);
+  }, [width, height, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -89,6 +110,14 @@ export const ModelViewer = forwardRef<ModelViewerHandle, Props>(function ModelVi
     else if (msg.type === 'progress') cbs.current.onProgress?.(Number(msg.loaded) || 0);
     else if (msg.type === 'loaded') cbs.current.onLoaded?.(msg.dimensions as ModelDimensions);
     else if (msg.type === 'error') cbs.current.onError?.(String(msg.message));
+    else if (msg.type === 'snapshot') {
+      const p = pendingSnaps.current.get(String(msg.reqId));
+      if (!p) return;
+      pendingSnaps.current.delete(String(msg.reqId));
+      const data = typeof msg.data === 'string' ? msg.data : '';
+      if (data.startsWith('data:image/jpeg;base64,')) p.resolve(data.slice('data:image/jpeg;base64,'.length));
+      else p.reject(new Error(String(msg.error ?? 'Snapshot failed')));
+    }
   }, []);
 
   return (

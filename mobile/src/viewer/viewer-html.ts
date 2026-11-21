@@ -10,6 +10,7 @@
  *      { type: 'progress', loaded: 0..1 }
  *      { type: 'loaded', dimensions: {x,y,z} }   // model units from the GLB, NOT calibrated cm
  *      { type: 'error', message }
+ *      { type: 'snapshot', reqId, data }          // JPEG data URL of the current render (thumbnail)
  */
 export function buildViewerHtml(lib: string): string {
   return `<!doctype html>
@@ -73,8 +74,20 @@ export function buildViewerHtml(lib: string): string {
       mv.cameraOrbit = '-30deg 75deg auto'; mv.cameraTarget = 'auto auto auto'; mv.fieldOfView = 'auto';
       mv.resetTurntableRotation && mv.resetTurntableRotation();
     },
-    setAutoRotate: function(on){ if (on) mv.setAttribute('auto-rotate',''); else mv.removeAttribute('auto-rotate'); }
+    setAutoRotate: function(on){ if (on) mv.setAttribute('auto-rotate',''); else mv.removeAttribute('auto-rotate'); },
+    snapshot: function(reqId){
+      try { post({type:'snapshot', reqId: reqId, data: mv.toDataURL('image/jpeg', 0.82)}); }
+      catch(e){ post({type:'snapshot', reqId: reqId, error: String(e && e.message || e)}); }
+    },
+    // Called after rotation / split-view resize. model-viewer's ResizeObserver already resizes the
+    // renderer and camera aspect; re-framing keeps the whole object in view for the new aspect.
+    relayout: function(){ if (mv.loaded && mv.updateFraming) mv.updateFraming(); }
   };
+  var resizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){ window.unfold.relayout(); }, 180);
+  });
   post({type:'ready'});
 })();
 </script>

@@ -1,26 +1,25 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isBusy, type PickedImage, useGeneration } from '@/lib/useGeneration';
 import { useServerStatus } from '@/lib/useServerStatus';
 import { Button } from '@/ui/Button';
 import { GenerationStatus } from '@/ui/GenerationStatus';
+import { clamp, useLayout } from '@/ui/layout';
 import { ServerPill } from '@/ui/ServerPill';
 import { ServerSettings } from '@/ui/ServerSettings';
 import { C, R } from '@/ui/theme';
 
+const TOP_BAR = 56;
+
 export default function CaptureScreen() {
-  const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const wide = width >= 820 && width > height * 0.9;
+  const L = useLayout();
   const [image, setImage] = useState<PickedImage | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { phase, start, cancel, reset } = useGeneration();
@@ -32,7 +31,7 @@ export default function CaptureScreen() {
     if (phase.kind === 'succeeded') {
       router.push({
         pathname: '/explore',
-        params: { uri: phase.modelUri, title: 'New model', generationId: phase.id, sourceImage: image?.uri ?? '' },
+        params: { uri: phase.modelUri, title: 'New model', origin: 'generated', generationId: phase.id, sourceImage: image?.uri ?? '' },
       });
       reset();
     }
@@ -75,16 +74,28 @@ export default function CaptureScreen() {
       dir.create({ intermediates: true, idempotent: true });
       const dest = new File(dir, `${Date.now()}-${picked.name}`);
       await picked.copy(dest);
-      router.push({ pathname: '/explore', params: { uri: dest.uri, title: picked.name.replace(/\.glb$/i, '') } });
+      router.push({ pathname: '/explore', params: { uri: dest.uri, title: picked.name.replace(/\.glb$/i, ''), origin: 'imported' } });
     } catch (e) {
       Alert.alert('Couldn’t open file', (e as Error).message);
     }
   };
 
+  // ---- adaptive sizing (recomputed on every rotation) ----
+  const two = L.twoColumn;
+  const usableH = L.contentHeight - TOP_BAR;
+  const headlineSize = two ? (usableH < 500 ? 28 : usableH < 700 ? 36 : 42) : L.width >= 600 ? 40 : 30;
+  const colWidth = two ? (L.width - L.padLeft - L.padRight - 40) * 0.54 : L.width - L.padLeft - L.padRight;
+  // Image area leaves room for the action panel beneath it so nothing is clipped in short landscape.
+  const imageH = two
+    ? clamp(usableH - 190, 200, 640)
+    : L.tablet
+      ? clamp(colWidth * 0.7, 300, 620)
+      : clamp(colWidth, 240, 460);
+
   const hero = (
     <Animated.View entering={FadeInDown.duration(600)} style={styles.hero}>
       <Text style={styles.eyebrow}>CAPTURE</Text>
-      <Text style={[styles.headline, !wide && styles.headlineCompact]}>
+      <Text style={[styles.headline, { fontSize: headlineSize, lineHeight: Math.round(headlineSize * 1.15) }]}>
         Turn a picture into something you can turn over in your hands.
       </Text>
       <Text style={styles.sub}>
@@ -93,38 +104,35 @@ export default function CaptureScreen() {
       </Text>
       <View style={styles.sources}>
         <Button label="Take photo" icon="camera.fill" size="lg" onPress={() => pick('camera')} disabled={busy} style={styles.flexBtn} />
-        <Button
-          label="Choose from Photos"
-          icon="photo.on.rectangle"
-          size="lg"
-          onPress={() => pick('library')}
-          disabled={busy}
-          style={styles.flexBtn}
-        />
+        <Button label="Choose from Photos" icon="photo.on.rectangle" size="lg" onPress={() => pick('library')} disabled={busy} style={styles.flexBtn} />
       </View>
-      <Button label="Open a .glb file" icon="doc.badge.plus" variant="ghost" onPress={openGlb} disabled={busy} style={styles.alignStart} />
+      <View style={styles.secondaryRow}>
+        <Button label="Guided 3D Scan" icon="viewfinder" onPress={() => router.push('/scan')} disabled={busy} />
+        <Button label="Open a .glb file" icon="doc.badge.plus" variant="ghost" onPress={openGlb} disabled={busy} />
+      </View>
     </Animated.View>
   );
 
   const stage = (
-    <View style={[styles.stage, wide ? styles.stageWide : { aspectRatio: 4 / 5 }]}>
-      {image ? (
-        <Animated.View key={image.uri} entering={FadeIn.duration(500)} exiting={FadeOut} style={StyleSheet.absoluteFill}>
-          <Image source={{ uri: image.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
-          <LinearGradient colors={['transparent', 'rgba(7,9,11,0.92)']} style={styles.stageShade} />
-          {!busy ? (
-            <Pressable style={styles.clear} onPress={() => setImage(null)} accessibilityLabel="Remove image" hitSlop={10}>
-              <SymbolView name="xmark" size={14} tintColor={C.text} weight="bold" />
-            </Pressable>
-          ) : null}
-        </Animated.View>
-      ) : (
-        <View style={styles.empty}>
-          <ScanFrame />
-          <Text style={styles.emptyTitle}>No image yet</Text>
-          <Text style={styles.emptyBody}>Single objects on a plain background give the best models.</Text>
-        </View>
-      )}
+    <View style={styles.stage}>
+      <View style={[styles.imageArea, { height: imageH }]}>
+        {image ? (
+          <Animated.View key={image.uri} entering={FadeIn.duration(500)} exiting={FadeOut} style={StyleSheet.absoluteFill}>
+            <Image source={{ uri: image.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
+            {!busy ? (
+              <Pressable style={styles.clear} onPress={() => setImage(null)} accessibilityLabel="Remove image" hitSlop={10}>
+                <SymbolView name="xmark" size={14} tintColor={C.text} weight="bold" />
+              </Pressable>
+            ) : null}
+          </Animated.View>
+        ) : (
+          <View style={styles.empty}>
+            <ScanFrame size={imageH < 280 ? 96 : 150} />
+            <Text style={styles.emptyTitle}>No image yet</Text>
+            <Text style={styles.emptyBody}>Single objects on a plain background give the best models.</Text>
+          </View>
+        )}
+      </View>
 
       {image ? (
         <View style={styles.panel}>
@@ -141,7 +149,7 @@ export default function CaptureScreen() {
               </View>
             </Animated.View>
           ) : busy || phase.kind === 'succeeded' ? (
-            <Animated.View entering={FadeIn} style={{ gap: 16 }}>
+            <Animated.View entering={FadeIn} style={{ gap: 12 }}>
               <GenerationStatus phase={phase} />
               {busy ? <Button label="Cancel" variant="ghost" onPress={cancel} style={styles.alignStart} /> : null}
             </Animated.View>
@@ -154,8 +162,8 @@ export default function CaptureScreen() {
   );
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.topBar}>
+    <View style={[styles.root, { paddingTop: L.insets.top }]}>
+      <View style={[styles.topBar, { paddingLeft: L.padLeft, paddingRight: L.padRight }]}>
         <Text style={styles.wordmark}>UNFOLD</Text>
         <View style={styles.topRight}>
           <ServerPill status={server} onPress={() => setSettingsOpen(true)} />
@@ -165,9 +173,9 @@ export default function CaptureScreen() {
         </View>
       </View>
       <ScrollView
-        contentContainerStyle={[styles.scroll, wide && styles.scrollWide, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={{ paddingLeft: L.padLeft, paddingRight: L.padRight, paddingTop: 8, paddingBottom: L.insets.bottom + 24 }}
         showsVerticalScrollIndicator={false}>
-        {wide ? (
+        {two ? (
           <View style={styles.columns}>
             <View style={styles.colLeft}>{hero}</View>
             <View style={styles.colRight}>{stage}</View>
@@ -190,37 +198,37 @@ export default function CaptureScreen() {
   );
 }
 
-function ScanFrame() {
-  const corner = (pos: object) => <View style={[styles.corner, pos]} />;
+function ScanFrame({ size }: { size: number }) {
+  const r = Math.round(size * 0.09);
+  const len = Math.round(size * 0.23);
+  const corner = (pos: object) => <View style={[styles.corner, { width: len, height: len }, pos]} />;
   return (
-    <View style={styles.frame}>
-      {corner({ top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2, borderTopLeftRadius: 14 })}
-      {corner({ top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2, borderTopRightRadius: 14 })}
-      {corner({ bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2, borderBottomLeftRadius: 14 })}
-      {corner({ bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2, borderBottomRightRadius: 14 })}
-      <SymbolView name="cube.transparent" size={44} tintColor={C.accent} weight="light" />
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {corner({ top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2, borderTopLeftRadius: r })}
+      {corner({ top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2, borderTopRightRadius: r })}
+      {corner({ bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2, borderBottomLeftRadius: r })}
+      {corner({ bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2, borderBottomRightRadius: r })}
+      <SymbolView name="cube.transparent" size={Math.round(size * 0.3)} tintColor={C.accent} weight="light" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 28, height: 56 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: TOP_BAR, gap: 12 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
   wordmark: { color: C.text, fontSize: 15, fontWeight: '800', letterSpacing: 6 },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
-  scroll: { paddingHorizontal: 20, paddingTop: 12 },
-  scrollWide: { paddingHorizontal: 48, paddingTop: 24, flexGrow: 1 },
-  columns: { flexDirection: 'row', gap: 48, alignItems: 'stretch', flex: 1 },
-  colLeft: { flex: 5, justifyContent: 'center' },
-  colRight: { flex: 6 },
-  hero: { gap: 20 },
+  columns: { flexDirection: 'row', gap: 40, alignItems: 'flex-start' },
+  colLeft: { flex: 46, paddingTop: 8 },
+  colRight: { flex: 54 },
+  hero: { gap: 18 },
   eyebrow: { color: C.accent, fontSize: 13, fontWeight: '700', letterSpacing: 3 },
-  headline: { color: C.text, fontSize: 44, lineHeight: 50, fontWeight: '700', letterSpacing: -1 },
-  headlineCompact: { fontSize: 32, lineHeight: 38 },
-  sub: { color: C.textSecondary, fontSize: 17, lineHeight: 25, maxWidth: 520 },
-  sources: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 },
-  flexBtn: { flexGrow: 1 },
+  headline: { color: C.text, fontWeight: '700', letterSpacing: -0.8 },
+  sub: { color: C.textSecondary, fontSize: 16, lineHeight: 23, maxWidth: 560 },
+  sources: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
+  secondaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  flexBtn: { flexGrow: 1, flexBasis: 200 },
   alignStart: { alignSelf: 'flex-start' },
   stage: {
     borderRadius: R.xl,
@@ -228,14 +236,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: C.hairlineStrong,
-    justifyContent: 'flex-end',
   },
-  stageWide: { flex: 1, minHeight: 520 },
-  stageShade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%' },
+  imageArea: { width: '100%', backgroundColor: C.surface },
   clear: {
     position: 'absolute',
-    top: 16,
-    right: 16,
+    top: 14,
+    right: 14,
     width: 34,
     height: 34,
     borderRadius: 17,
@@ -243,15 +249,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  empty: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  emptyTitle: { color: C.text, fontSize: 18, fontWeight: '600', marginTop: 18 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20 },
+  emptyTitle: { color: C.text, fontSize: 18, fontWeight: '600', marginTop: 12 },
   emptyBody: { color: C.textSecondary, fontSize: 15, textAlign: 'center' },
-  frame: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
-  corner: { position: 'absolute', width: 34, height: 34, borderColor: C.accent },
-  panel: { padding: 24 },
-  error: { gap: 10, backgroundColor: 'rgba(20,10,10,0.85)', borderRadius: R.lg, padding: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,107,107,0.3)' },
+  corner: { position: 'absolute', borderColor: C.accent },
+  panel: { padding: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.hairline },
+  error: { gap: 10 },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   errorTitle: { color: C.text, fontSize: 17, fontWeight: '700' },
   errorBody: { color: C.textSecondary, fontSize: 15, lineHeight: 21 },
-  errorActions: { flexDirection: 'row', gap: 10, marginTop: 6, flexWrap: 'wrap' },
+  errorActions: { flexDirection: 'row', gap: 10, marginTop: 4, flexWrap: 'wrap' },
 });

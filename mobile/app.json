@@ -13,7 +13,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "edu.usf.hackjam.unfold",
       "infoPlist": {
-        "NSAppTransportSecurity": { "NSAllowsLocalNetworking": true },
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
         "NSLocalNetworkUsageDescription": "UNFOLD connects to your team’s generation server on the local network."
       }
     },
@@ -46,6 +48,14 @@
         {
           "photosPermission": "UNFOLD uses your photos so you can turn a picture into a 3D model.",
           "cameraPermission": "UNFOLD uses the camera to photograph objects and diagrams to turn into 3D models."
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "UNFOLD uses the camera to photograph objects from several sides for Guided 3D Scan.",
+          "recordAudioAndroid": false
         }
       ]
     ],

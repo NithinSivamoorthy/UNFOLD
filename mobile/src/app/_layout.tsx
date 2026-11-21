@@ -24,6 +24,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="explore" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+          <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
         </Stack>
       </ThemeProvider>
     </GestureHandlerRootView>

@@ -1,18 +1,30 @@
 import { BlurView } from 'expo-blur';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { deleteModel, getModel, type ModelOrigin, saveModel, type SavedModel, shareModel } from '@/library/store';
 import { Button } from '@/ui/Button';
+import { useLayout } from '@/ui/layout';
 import { C, R } from '@/ui/theme';
 import { type ModelDimensions, ModelViewer, type ModelViewerHandle } from '@/viewer/ModelViewer';
 
+type Params = {
+  /** file:// of a GLB not yet in the library (fresh generation or import) */
+  uri?: string;
+  /** id of a model already saved in My Models */
+  modelId?: string;
+  title?: string;
+  origin?: ModelOrigin;
+  generationId?: string;
+  sourceImage?: string;
+};
+
 export default function ExploreScreen() {
-  const { uri, title } = useLocalSearchParams<{ uri: string; title?: string; generationId?: string; sourceImage?: string }>();
-  const insets = useSafeAreaInsets();
+  const p = useLocalSearchParams<Params>();
+  const L = useLayout();
   const viewer = useRef<ModelViewerHandle>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [progress, setProgress] = useState(0);
@@ -20,47 +32,150 @@ export default function ExploreScreen() {
   const [dims, setDims] = useState<ModelDimensions | null>(null);
   const [spin, setSpin] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [saved, setSaved] = useState<SavedModel | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [lookup, setLookup] = useState<'none' | 'pending' | 'missing'>(p.modelId ? 'pending' : 'none');
 
-  if (!uri) {
+  // Reopen from the on-device library: no network, no regeneration.
+  useEffect(() => {
+    if (!p.modelId) return;
+    let alive = true;
+    getModel(p.modelId)
+      .then((m) => {
+        if (!alive) return;
+        if (!m || !m.available) {
+          setLookup('missing');
+          if (m) setSaved(m);
+          return;
+        }
+        setSaved(m);
+        setLookup('none');
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setError((e as Error).message);
+        setState('error');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [p.modelId]);
+
+  const modelUri = saved?.available ? saved.glbUri : p.uri;
+  const title = saved?.name ?? p.title ?? 'Model';
+  const compact = L.width < 560;
+  const short = L.height < 520;
+
+  const save = () => {
+    if (!p.uri || saving) return;
+    Alert.prompt(
+      'Save to My Models',
+      'Give this model a name.',
+      async (name) => {
+        setSaving(true);
+        try {
+          let thumb: string | null = null;
+          try {
+            thumb = await viewer.current?.snapshot() ?? null;
+          } catch {} // a missing thumbnail must never block saving
+          const m = await saveModel({
+            glbUri: p.uri!,
+            name: name || title,
+            origin: p.origin ?? 'imported',
+            generationId: p.generationId || null,
+            sourceImageUri: p.sourceImage || null,
+            thumbBase64: thumb,
+            dims,
+          });
+          setSaved(m);
+        } catch (e) {
+          Alert.alert('Couldn’t save', (e as Error).message);
+        } finally {
+          setSaving(false);
+        }
+      },
+      'plain-text',
+      title === 'New model' ? '' : title
+    );
+  };
+
+  const share = async () => {
+    if (!saved) return;
+    try {
+      await shareModel(saved);
+    } catch (e) {
+      Alert.alert('Couldn’t share', (e as Error).message);
+    }
+  };
+
+  if (lookup === 'missing' || (!modelUri && lookup === 'none')) {
     return (
       <View style={[styles.root, styles.center]}>
-        <Text style={styles.msgTitle}>No model to show</Text>
-        <Button label="Back" onPress={() => router.back()} />
+        <SymbolView name="exclamationmark.triangle.fill" size={28} tintColor={C.warning} />
+        <Text style={styles.msgTitle}>{lookup === 'missing' ? 'This model’s file is missing' : 'No model to show'}</Text>
+        {lookup === 'missing' ? (
+          <Text style={styles.msgBody}>The saved GLB is no longer on this device. You can remove the entry from My Models.</Text>
+        ) : null}
+        <View style={styles.row}>
+          <Button label="Back" onPress={() => router.back()} />
+          {lookup === 'missing' && p.modelId ? (
+            <Button
+              label="Remove entry"
+              variant="danger"
+              onPress={async () => {
+                await deleteModel(p.modelId!).catch(() => {});
+                router.back();
+              }}
+            />
+          ) : null}
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.root}>
-      <ModelViewer
-        key={attempt}
-        ref={viewer}
-        modelUri={uri}
-        onProgress={setProgress}
-        onLoaded={(d) => {
-          setDims(d);
-          setState('ready');
-        }}
-        onError={(m) => {
-          setError(m);
-          setState('error');
-        }}
-      />
+      {modelUri ? (
+        <ModelViewer
+          key={`${modelUri}#${attempt}`}
+          ref={viewer}
+          modelUri={modelUri}
+          onProgress={setProgress}
+          onLoaded={(d) => {
+            setDims(d);
+            setState('ready');
+          }}
+          onError={(m) => {
+            setError(m);
+            setState('error');
+          }}
+        />
+      ) : null}
 
       {/* Top bar */}
-      <View style={[styles.top, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+      <View
+        style={[styles.top, { paddingTop: L.insets.top + 8, paddingLeft: 16 + L.insets.left, paddingRight: 16 + L.insets.right }]}
+        pointerEvents="box-none">
         <Glass>
           <Pressable onPress={() => router.back()} hitSlop={8} style={styles.roundBtn} accessibilityLabel="Close">
             <SymbolView name="xmark" size={16} tintColor={C.text} weight="semibold" />
           </Pressable>
         </Glass>
         <View style={styles.titleWrap} pointerEvents="none">
-          <Text style={styles.eyebrow}>EXPLORE</Text>
+          <Text style={styles.eyebrow}>{saved ? 'MY MODELS' : 'EXPLORE'}</Text>
           <Text style={styles.title} numberOfLines={1}>
-            {title || 'Model'}
+            {title}
           </Text>
         </View>
-        <View style={{ width: 44 }} />
+        {saved ? (
+          <Glass>
+            <Pressable onPress={share} hitSlop={8} style={styles.roundBtn} accessibilityLabel="Share model file">
+              <SymbolView name="square.and.arrow.up" size={16} tintColor={C.text} weight="semibold" />
+            </Pressable>
+          </Glass>
+        ) : (
+          <View style={{ width: 44 }} />
+        )}
       </View>
 
       {/* Loading / error overlays */}
@@ -90,30 +205,40 @@ export default function ExploreScreen() {
 
       {/* Bottom controls */}
       {state === 'ready' ? (
-        <Animated.View entering={FadeIn.delay(300).duration(500)} style={[styles.bottom, { paddingBottom: insets.bottom + 20 }]} pointerEvents="box-none">
+        <Animated.View
+          entering={FadeIn.delay(300).duration(500)}
+          style={[styles.bottom, { paddingBottom: L.insets.bottom + (short ? 10 : 20), paddingLeft: L.insets.left, paddingRight: L.insets.right }]}
+          pointerEvents="box-none">
           {dims ? (
             <Glass style={styles.dims}>
               <Text style={styles.dimsLabel}>MODEL EXTENTS</Text>
               <Text style={styles.dimsValue}>
                 {fmt(dims.x)} × {fmt(dims.y)} × {fmt(dims.z)}
               </Text>
-              <Text style={styles.dimsNote}>model units · not calibrated to real-world size</Text>
+              {!short ? <Text style={styles.dimsNote}>model units · not calibrated to real-world size</Text> : null}
             </Glass>
           ) : null}
           <Glass style={styles.toolbar}>
-            <ToolButton icon="scope" label="Reset view" onPress={() => viewer.current?.resetView()} />
+            <ToolButton icon="scope" label="Reset view" compact={compact} onPress={() => viewer.current?.resetView()} />
             <View style={styles.sep} />
             <ToolButton
               icon={spin ? 'pause.fill' : 'arrow.triangle.2.circlepath'}
               label={spin ? 'Stop spin' : 'Auto-rotate'}
+              compact={compact}
               active={spin}
               onPress={() => {
                 viewer.current?.setAutoRotate(!spin);
                 setSpin(!spin);
               }}
             />
+            {p.uri || saved ? <View style={styles.sep} /> : null}
+            {saved ? (
+              <ToolButton icon="checkmark.circle.fill" label="Saved" compact={compact} active onPress={() => router.navigate('/library')} />
+            ) : p.uri ? (
+              <ToolButton icon={saving ? 'hourglass' : 'tray.and.arrow.down'} label={saving ? 'Saving…' : 'Save'} compact={compact} onPress={save} />
+            ) : null}
           </Glass>
-          <Text style={styles.hint}>Drag to rotate · pinch to zoom · two fingers to pan</Text>
+          {!short ? <Text style={styles.hint}>Drag to rotate · pinch to zoom · two fingers to pan</Text> : null}
         </Animated.View>
       ) : null}
     </View>
@@ -130,17 +255,30 @@ function Glass({ children, style }: { children: React.ReactNode; style?: object 
   );
 }
 
-function ToolButton({ icon, label, onPress, active }: { icon: SymbolViewProps['name']; label: string; onPress: () => void; active?: boolean }) {
+function ToolButton({
+  icon,
+  label,
+  onPress,
+  active,
+  compact,
+}: {
+  icon: SymbolViewProps['name'];
+  label: string;
+  onPress: () => void;
+  active?: boolean;
+  compact?: boolean;
+}) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.tool, pressed && { opacity: 0.6 }]} accessibilityRole="button" accessibilityLabel={label}>
       <SymbolView name={icon} size={18} tintColor={active ? C.accent : C.text} />
-      <Text style={[styles.toolLabel, active && { color: C.accent }]}>{label}</Text>
+      {!compact ? <Text style={[styles.toolLabel, active && { color: C.accent }]}>{label}</Text> : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  row: { flexDirection: 'row', gap: 12, marginTop: 8 },
   center: { alignItems: 'center', justifyContent: 'center', gap: 14, padding: 32 },
   top: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 },
   glass: { borderRadius: R.pill, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: C.hairlineStrong, backgroundColor: 'rgba(15,19,23,0.35)' },
