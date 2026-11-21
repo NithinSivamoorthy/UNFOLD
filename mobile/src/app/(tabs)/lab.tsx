@@ -14,12 +14,12 @@ const MODULES: { icon: SymbolViewProps['name']; title: string; body: string }[] 
   {
     icon: 'atom',
     title: 'Physics Lab',
-    body: 'Drop, roll and collide your models in simplified, clearly labelled simulations.',
+    body: 'A 2D ball-and-ramp demo: change the angle, gravity and rolling resistance. Not yet connected to your 3D models.',
   },
   {
     icon: 'ruler',
     title: 'Measurements',
-    body: 'Calibrate a model against a known reference length, then inspect real dimensions.',
+    body: 'In Explore, calibrate a model with one known length to see estimated dimensions.',
   },
   {
     icon: 'arkit',
