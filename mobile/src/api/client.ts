@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
-import { getApiBaseUrl, validateBaseUrl } from './config';
+import { getApiBaseUrl, getDemoAuthToken, validateBaseUrl } from './config';
 import { type GenerationRecord, IMAGE_FIELD, parseGenerationRecord } from './contract';
 import { isGlbHeader } from './url';
 
@@ -23,12 +23,15 @@ async function baseUrl(): Promise<string> {
 
 async function request(path: string, init: RequestInit & { timeoutMs?: number; signal?: AbortSignal } = {}) {
   const url = `${await baseUrl()}${path}`;
+  const token = await getDemoAuthToken();
+  const headers = new Headers(init.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort('timeout'), init.timeoutMs ?? 20000);
   const onOuterAbort = () => ctrl.abort('cancelled');
   init.signal?.addEventListener('abort', onOuterAbort);
   try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    const res = await fetch(url, { ...init, headers, signal: ctrl.signal });
     if (!res.ok) {
       let detail = '';
       try {
@@ -140,11 +143,13 @@ export async function downloadGenerationModel(
   dir.create({ intermediates: true, idempotent: true });
   const dest = new File(dir, `${id}.glb`);
   const url = `${await baseUrl()}/api/generations/${encodeURIComponent(id)}/model`;
+  const token = await getDemoAuthToken();
   let file: File;
   try {
     file = await File.downloadFileAsync(url, dest, {
       idempotent: true,
       signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       onProgress: ({ bytesWritten, totalBytes }) => onProgress?.(totalBytes > 0 ? bytesWritten / totalBytes : null),
     });
   } catch (e) {

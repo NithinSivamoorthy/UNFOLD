@@ -57,7 +57,8 @@
           "cameraPermission": "UNFOLD uses the camera to photograph objects from several sides for Guided 3D Scan.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

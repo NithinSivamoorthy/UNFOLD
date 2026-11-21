@@ -2,18 +2,22 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { pingServer } from '@/api/client';
-import { getApiBaseUrl, normalizeBaseUrl, setApiBaseUrl, validateBaseUrl } from '@/api/config';
+import { getApiBaseUrl, getDemoAuthToken, normalizeBaseUrl, setApiBaseUrl, setDemoAuthToken, validateBaseUrl } from '@/api/config';
 import { Button } from './Button';
 import { C, R } from './theme';
 
 export function ServerSettings({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [value, setValue] = useState('');
+  const [token, setToken] = useState('');
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () => {
     setStatus(null);
-    getApiBaseUrl().then(setValue);
+    Promise.all([getApiBaseUrl(), getDemoAuthToken()]).then(([url, savedToken]) => {
+      setValue(url);
+      setToken(savedToken);
+    });
   };
 
   const save = async () => {
@@ -21,9 +25,15 @@ export function ServerSettings({ visible, onClose }: { visible: boolean; onClose
     const problem = validateBaseUrl(url);
     if (problem) return setStatus({ ok: false, message: problem });
     setBusy(true);
-    await setApiBaseUrl(url);
-    setStatus(await pingServer());
-    setBusy(false);
+    try {
+      await setApiBaseUrl(url);
+      await setDemoAuthToken(token);
+      setStatus(await pingServer());
+    } catch {
+      setStatus({ ok: false, message: 'Could not save the server settings securely.' });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -31,8 +41,7 @@ export function ServerSettings({ visible, onClose }: { visible: boolean; onClose
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
         <Text style={styles.title}>Generation server</Text>
         <Text style={styles.body}>
-          The HTTPS address of the UNFOLD API server (for example a tunnel to the laptop running server/ on port 3000).
-          Campus Wi-Fi blocks direct laptop addresses, and the Expo app tunnel is not the API.
+          Enter the HTTPS backend root and temporary demo token. The token is stored in iPhone Keychain and sent as an Authorization header. Never enter the Tripo API key here.
         </Text>
         <TextInput
           value={value}
@@ -42,6 +51,17 @@ export function ServerSettings({ visible, onClose }: { visible: boolean; onClose
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
+          style={styles.input}
+          onSubmitEditing={save}
+        />
+        <TextInput
+          value={token}
+          onChangeText={setToken}
+          placeholder="Temporary demo authorization token"
+          placeholderTextColor={C.textTertiary}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
           style={styles.input}
           onSubmitEditing={save}
         />
